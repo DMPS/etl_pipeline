@@ -1,12 +1,16 @@
 package main
 
 import (
-	"io"
+	"bytes"
+	"image"
+	"io/ioutil"
+	"math/rand"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/disintegration/imaging"
 )
 
 func ClassifyProduct(productName string) string {
@@ -16,7 +20,16 @@ func ClassifyProduct(productName string) string {
 	if strings.Contains(productName, "rone") {
 		return "drone" + generateTimestamp()
 	}
-	return ""
+	if strings.Contains(productName, "peaker") {
+		return "speaker" + generateTimestamp()
+	}
+	if strings.Contains(productName, "adar") {
+		return "radar" + generateTimestamp()
+	}
+	if strings.Contains(productName, "martphone") {
+		return "smartphone" + generateTimestamp()
+	}
+	return productName
 }
 
 func GeneratePath(productName string, imagepath string) string {
@@ -24,6 +37,26 @@ func GeneratePath(productName string, imagepath string) string {
 	relativepath := filepath.Join("images/", ClassifyProduct(productName)+extension)
 	path, _ := filepath.Abs(relativepath)
 	return path
+}
+
+func TransformImage(response *http.Response) (*image.NRGBA, error) {
+	buf, readErr := ioutil.ReadAll(response.Body)
+	if readErr != nil {
+		return &image.NRGBA{}, readErr
+	}
+	src, _, decodeErr := image.Decode(bytes.NewReader(buf))
+	if decodeErr != nil {
+		return &image.NRGBA{}, decodeErr
+	}
+
+	image := imaging.Resize(src, 96, 96, imaging.Lanczos)
+
+	//randomly add in blurring so that the model handles noise better
+	randomNum := rand.Float64()
+	if randomNum > 0.3 {
+		image = imaging.Blur(image, randomNum)
+	}
+	return image, nil
 }
 
 func SaveImage(imageUrl string, filename string) error {
@@ -36,12 +69,11 @@ func SaveImage(imageUrl string, filename string) error {
 		return getErr
 	}
 	defer response.Body.Close()
-	file, fileErr := os.Create(filename)
-	if fileErr != nil {
-		return fileErr
+	image, resizeErr := TransformImage(response)
+	if resizeErr != nil {
+		return resizeErr
 	}
-	defer file.Close()
-	_, fileErr = io.Copy(file, response.Body)
+	fileErr := imaging.Save(image, filename)
 	if fileErr != nil {
 		return fileErr
 	}
